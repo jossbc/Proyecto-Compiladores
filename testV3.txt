@@ -1,0 +1,37 @@
+// test.txt
+int a = 10;
+string saludo = "Hola";
+cangri(saludo, " el valor es ", to_string(a));
+
+// test.txt
+//cangri("Prueba 2");
+//int a = 10
+//float b = 5.5;
+
+// test.txt
+//cangri("Prueba 3");
+//string texto = "hola mundo";
+//string nuevo = replace(texto, "mundo", "marte", "extra");
+
+// test.txt
+//cangri("Prueba 4");
+//int x = 5;
+//cangri("El valor es ", to_string(x) ;
+
+// test.txt
+//cangri("Prueba 5");
+//int precio = 100$;
+
+// test.txt
+//cangri("Prueba 6");
+//int edad = "veinte";
+
+//cangri(b);
+
+//int x = 2 - -5;
+//cantri(x);
+
+//string int = "Hola";
+//cangri(int);
+
+replace("hola", "mundo")

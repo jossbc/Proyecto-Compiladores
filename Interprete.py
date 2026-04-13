@@ -1,9 +1,17 @@
 from lark import Transformer, v_args, Lark
 from lark.exceptions import UnexpectedInput, UnexpectedToken, UnexpectedCharacters, VisitError
 import warnings
+from CustomExceptions import *
 
 
-gramatica = """
+
+
+@v_args(meta=True)
+class Interprete(Transformer):
+    def __init__(self):
+        super().__init__(visit_tokens=True)
+
+        gramatica = """
 start: instrucciones
 
 instrucciones: instruccion+
@@ -88,15 +96,91 @@ EOI: ";"
 %ignore WS
 """
 
-parser = Lark(gramatica, propagate_positions=True)
+        self.analizador = Lark(gramatica, propagate_positions=True)
 
-@v_args(meta=True)
-class Interprete(Transformer):
-    def __init__(self):
-        super().__init__(visit_tokens=True)
         self.tabla_simbolos = {}
         self.valores_por_tipo = {"int": [0, int, float], "float": [0.0, float, int], "string": ["", str],
                                  "invalid": {""}}
+        
+    def interpretar_desde_archivo(self, nombre_archivo):
+        with open(nombre_archivo, 'r') as f:
+            texto = f.read()
+            self.interpretar_texto(texto)
+
+    def interpretar_texto(self, texto_entrada):
+        try:
+            result = self.transform(self.analizador.parse(texto_entrada))
+            print()
+            print(result)
+            
+        except UnexpectedToken as e:
+            print(f"[Error de Sintaxis (token)]: Token inesperado en la línea {e.line}, columna {e.column}.")
+            print(e.get_context(texto_entrada))
+            
+            esperados = e.expected
+            print("DEBUG Token Esperados:", esperados)
+            
+            if 'EOI' in esperados:
+                print(" -> [Sugerencia]: Parece que olvidaste un punto y coma (';').")
+            elif ')' in esperados or 'RPAR' in esperados:
+                print(" -> [Sugerencia]: Te faltó cerrar un paréntesis ')' o la estructura está incompleta.")
+            else:
+                print(f" -> [Sugerencia]: Revisa la sintaxis. Se esperaba encontrar: {', '.join(esperados)}")
+
+        except UnexpectedCharacters as e:
+            print(f"[Error de Sintaxis (char)]: Carácter no válido en la línea {e.line}, columna {e.column}.")
+            print(e.get_context(texto_entrada))
+            
+            esperados = e.allowed
+            print("DEBUG Token Esperados:", esperados)
+            caracter_malo = texto_entrada[e.pos_in_stream] 
+            
+            operadores_validos = ['+', '-', '*', '/', '^', '=', '#', '(', ')', ',', ';', '.', '"', '_']
+            
+            if not caracter_malo.isalnum() and caracter_malo not in operadores_validos and caracter_malo not in ' \t\n\r':
+                print(f" -> [Sugerencia]: El símbolo '{caracter_malo}' no pertenece a este lenguaje. Quítalo o corrígelo.")
+                
+            elif caracter_malo == '(':
+                print(" -> [Sugerencia]: Encontré un paréntesis '(' inesperado.")
+                
+            elif 'EOI' in esperados or '";"' in esperados:
+                print(" -> [Sugerencia]: Parece que olvidaste un punto y coma (';') al final de la instrucción anterior.")
+                
+            elif '")"' in esperados or ')' in esperados or 'RPAR' in esperados or any("ANON" in s for s in esperados):
+                print(" -> [Sugerencia]: Demasiados parámetros o símbolo inesperado. Se esperaba cerrar la función con ')'.")
+                
+            else:
+                print(" -> [Sugerencia]: Revisa que no haya palabras mal escritas cerca de esta zona.")
+        
+        except UnexpectedInput as e:
+            print(f"[Error de Sintaxis Genérico]: Error linea {e.line}, columna {e.column}.")
+            print(e.get_context(texto_entrada))
+            
+        except VisitError as e:
+            error_real = e.orig_exc
+            
+            if isinstance(error_real, TypeError):
+                print(f"\n{error_real}")
+                print(" -> [Sugerencia]: Revisa que estés asignando el tipo de dato correcto.")
+                
+            elif isinstance(error_real, NameError):
+                print(f"\n{error_real}")
+                print(" -> [Sugerencia]: Asegúrate de declarar la variable antes de usarla.")
+                
+            elif isinstance(error_real, PreviouslyDeclaredError):
+                print(f"\n{error_real}")
+                print(" -> [Sugerencia]: Asegúrate de declarar la variable solamente una vez.")
+                
+            elif isinstance(error_real, InitializationError):
+                print(f"\n{error_real}")
+                print(" -> [Sugerencia]: Asegúrate de inicializar la variable antes de usarla.")
+                
+            elif isinstance(error_real, ZeroDivisionError):
+                print(f"\n{error_real}")
+                print(" -> [Sugerencia]: Las matemáticas prohíben dividir entre cero. Cambia el denominador.")
+                
+            else:
+                print(f"\n[Error de Ejecución]: {error_real}")
 
     def __obtener_tipo__(valor):
 
@@ -109,7 +193,7 @@ class Interprete(Transformer):
 
     def __agregar_a_tabla_simbolos__(self, id, val, tipo, init, meta):
         if id in self.tabla_simbolos:
-            raise NameError(f"[Error]: Variable '{id}' ya definida. [L{meta.line}:C{meta.column}]")
+            raise PreviouslyDeclaredError(f"[Error]: Variable '{id}' ya definida. [L{meta.line}:C{meta.column}]")
         self.tabla_simbolos[id] = {"valor": val, "tipo": tipo, "init": init}
         return val
 
@@ -147,8 +231,7 @@ class Interprete(Transformer):
             raise NameError(f"[Error]: Variable '{nombre}' no definida.")
 
         if not self.tabla_simbolos[nombre]["init"]:
-            #raise InitializationError(f"[Error]: Variable '{nombre}' no inicializada. [L{meta.line}:C{meta.column}]")
-            pass
+            raise InitializationError(f"[Error]: Variable '{nombre}' no inicializada. [L{meta.line}:C{meta.column}]")
         return self.tabla_simbolos[nombre]["valor"]
 
     @v_args(meta=True)
@@ -305,71 +388,3 @@ class Interprete(Transformer):
         warnings.warn("[Advertencia]: Esta instruccion no causa ningun efecto.")
         return
 
-with open('test.txt', 'r') as f:
-    test = f.read()
-    inter = Interprete()
-    try:
-        result = inter.transform(parser.parse(test))
-        print()
-        print(result)
-        
-    except UnexpectedToken as e:
-        print(f"[Error de Sintaxis (token)]: Token inesperado en la línea {e.line}, columna {e.column}.")
-        print(e.get_context(test))
-        
-        esperados = e.expected
-        print("DEBUG Token Esperados:", esperados)
-        
-        if 'EOI' in esperados:
-            print(" -> [Sugerencia]: Parece que olvidaste un punto y coma (';').")
-        elif ')' in esperados or 'RPAR' in esperados:
-            print(" -> [Sugerencia]: Te faltó cerrar un paréntesis ')' o la estructura está incompleta.")
-        else:
-            print(f" -> [Sugerencia]: Revisa la sintaxis. Se esperaba encontrar: {', '.join(esperados)}")
-
-    except UnexpectedCharacters as e:
-        print(f"[Error de Sintaxis (char)]: Carácter no válido en la línea {e.line}, columna {e.column}.")
-        print(e.get_context(test))
-        
-        esperados = e.allowed
-        print("DEBUG Token Esperados:", esperados)
-        caracter_malo = test[e.pos_in_stream] 
-        
-        operadores_validos = ['+', '-', '*', '/', '^', '=', '#', '(', ')', ',', ';', '.', '"', '_']
-        
-        if not caracter_malo.isalnum() and caracter_malo not in operadores_validos and caracter_malo not in ' \t\n\r':
-            print(f" -> [Sugerencia]: El símbolo '{caracter_malo}' no pertenece a este lenguaje. Quítalo o corrígelo.")
-            
-        elif caracter_malo == '(':
-            print(" -> [Sugerencia]: Encontré un paréntesis '(' inesperado.")
-               
-        elif 'EOI' in esperados or '";"' in esperados:
-            print(" -> [Sugerencia]: Parece que olvidaste un punto y coma (';') al final de la instrucción anterior.")
-            
-        elif '")"' in esperados or ')' in esperados or 'RPAR' in esperados or any("ANON" in s for s in esperados):
-            print(" -> [Sugerencia]: Demasiados parámetros o símbolo inesperado. Se esperaba cerrar la función con ')'.")
-            
-        else:
-            print(" -> [Sugerencia]: Revisa que no haya palabras mal escritas cerca de esta zona.")
-    
-    except UnexpectedInput as e:
-        print(f"[Error de Sintaxis Genérico]: Error linea {e.line}, columna {e.column}.")
-        print(e.get_context(test))
-        
-    except VisitError as e:
-        error_real = e.orig_exc
-        
-        if isinstance(error_real, TypeError):
-            print(f"\n{error_real}")
-            print(" -> [Sugerencia]: Revisa que estés asignando el tipo de dato correcto.")
-            
-        elif isinstance(error_real, NameError):
-            print(f"\n{error_real}")
-            print(" -> [Sugerencia]: Asegúrate de declarar la variable antes de usarla.")
-            
-        elif isinstance(error_real, ZeroDivisionError):
-            print(f"\n{error_real}")
-            print(" -> [Sugerencia]: Las matemáticas prohíben dividir entre cero. Cambia el denominador.")
-            
-        else:
-            print(f"\n[Error de Ejecución]: {error_real}")

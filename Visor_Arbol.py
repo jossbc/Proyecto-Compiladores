@@ -7,7 +7,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:
-    from interprete import Interprete
+    from Interprete import Interprete
     LARK_OK = True
 except ImportError as e:
     LARK_OK = False

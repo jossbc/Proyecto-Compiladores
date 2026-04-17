@@ -66,7 +66,7 @@ asig: id "=" expr            -> _asig
     | id_str                        -> _var
     | "to_string" "(" expr_num ")"  -> _to_string
 
-impresion: "cangri" "(" [lista_args] ")" EOI -> _print
+impresion: PRT "(" [lista_args] ")" EOI -> _print
 
 lista_args: expr                    -> _init_lista_args
         | lista_args "," expr       -> _lista_args
@@ -78,6 +78,7 @@ TIPO: "int" | "string" | "float"
 ?id_num: CNAME                      -> _var_name
 ?id_str: CNAME                      -> _var_name
 EOI: ";"
+PRT: "cangri"
 
 %import common.WS
 %import common.CNAME
@@ -166,19 +167,47 @@ class Interprete(Transformer):
     @staticmethod
     def _fmt_sintaxis(e, texto):
         linea = getattr(e, "line", "?")
-        col   = getattr(e, "column", "?")
-        base  = f"[Error Sintáctico] L{linea}:C{col}"
+        col   = getattr(e, "column", "?")        
+        pos = getattr(e, "pos_in_stream", None)        
+        if type(e).__name__ == "UnexpectedEOF":
+            pos = len(texto)
+        elif pos is None and hasattr(e, "token"):
+            pos = getattr(e.token, "pos_in_stream", None)
 
+        def pos_anterior():
+            if pos is None or not texto:
+                return linea, col
+            
+            texto_previo = texto[:pos].rstrip()
+            if not texto_previo:
+                return linea, col
+            l = texto_previo.count('\n') + 1
+            ultimo_salto = texto_previo.rfind('\n')
+            if ultimo_salto == -1:
+                c = len(texto_previo) + 1
+            else:
+                c = len(texto_previo) - ultimo_salto                
+            return l, c
+        base = f"[Error Sintáctico] L{linea}:C{col}"
+        if type(e).__name__ == "UnexpectedEOF":
+            l, c = pos_anterior()
+            return f"[Error Sintáctico] L{l}:C{c} — Falta punto y coma ';'"
         if isinstance(e, UnexpectedToken):
-            esperados = list(getattr(e, "expected", []))
-            if "EOI" in esperados:
-                return base + " — Falta punto y coma ';'"
-            return base + f" — Token inesperado '{e.token}'. Esperados: {esperados}"
-
+            esperados = getattr(e, "accepts", None)
+            if esperados is None:
+                esperados = getattr(e, "expected", [])
+            esperados_list = list(esperados)            
+            if "EOI" in esperados_list or ";" in esperados_list:
+                l, c = pos_anterior()
+                return f"[Error Sintáctico] L{l}:C{c} — Falta punto y coma ';'"            
+            return base + f" — Token inesperado '{e.token}'. Esperados: {esperados_list}"            
         if isinstance(e, UnexpectedCharacters):
             ch = getattr(e, "char", "?")
-            return base + f" — Carácter no válido: '{ch}'"
-
+            permitidos = getattr(e, "allowed", set())            
+            if "EOI" in permitidos or ";" in permitidos:
+                l, c = pos_anterior()
+                return f"[Error Sintáctico] L{l}:C{c} — Falta punto y coma ';'"               
+            return base + f" — Carácter no válido: '{ch}'"            
         return base + f" — {e}"
 
     def __obtener_tipo__(self, valor):
@@ -203,7 +232,9 @@ class Interprete(Transformer):
                 f"[L{meta.line}:C{meta.column}]"
             )
         self.tabla_simbolos[id_]["init"] = True
-        if tipo in ("int", "float"):
+        if tipo == "int":
+            val = int(val)
+        if tipo == "float":
             val = float(val)
         self.tabla_simbolos[id_]["valor"] = val
 

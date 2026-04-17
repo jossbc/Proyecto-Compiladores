@@ -96,6 +96,8 @@ class Interprete(Transformer):
     def __init__(self, salida_callback=None, warn_callback=None):
         super().__init__(visit_tokens=True)
         self.analizador = Lark(GRAMATICA, propagate_positions=True)
+        self.errores_semanticos = []
+
         self.tabla_simbolos: dict = {}
         self.valores_por_tipo = {
             "int":    [0,    int, float],
@@ -103,8 +105,13 @@ class Interprete(Transformer):
             "string": ["",   str],
             "invalid": {""},
         }
+        
         self._output_cb = salida_callback or print
         self._warn_cb   = warn_callback   or (lambda m: warnings.warn(m))
+    
+    def _registrar_error(self, mensaje):
+        """Función helper para guardar errores"""
+        self.errores_semanticos.append(mensaje)
 
     def interpretar_archivo(self, path: str):
         with open(path, encoding="utf-8") as f:
@@ -129,16 +136,19 @@ class Interprete(Transformer):
             resultado["tokens"] = self._extraer_tokens(texto)
             return resultado
 
-        try:
-            self.tabla_simbolos = {}
-            with warnings.catch_warnings(record=True) as captured:
-                warnings.simplefilter("always")
-                self.transform(arbol)
-                for w in captured:
-                    resultado["mensajes"].append(f"[Advertencia]: {w.message}")
+        try:            
+            self.transform(arbol)
 
-            resultado["ok"]      = True
+            if self.errores_semanticos:
+                resultado["mensajes"].extend(self.errores_semanticos)
+                resultado["ok"] = False
+            else:
+                resultado["ok"] = True
+                
             resultado["simbolos"] = dict(self.tabla_simbolos)
+
+            # self.tabla_simbolos = {}
+            # self.errores_semanticos = [] 
 
         except VisitError as e:
             err = e.orig_exc
@@ -188,6 +198,7 @@ class Interprete(Transformer):
             else:
                 c = len(texto_previo) - ultimo_salto                
             return l, c
+        
         base = f"[Error Sintáctico] L{linea}:C{col}"
         if type(e).__name__ == "UnexpectedEOF":
             l, c = pos_anterior()
@@ -213,28 +224,29 @@ class Interprete(Transformer):
     def __obtener_tipo__(self, valor):
         return {int: "int", float: "float", str: "string"}.get(type(valor), "invalid")
 
+    @v_args(meta=True)
     def __agregar_a_tabla_simbolos__(self, id_, val, tipo, init, meta):
         if id_ in self.tabla_simbolos:
-            raise PreviouslyDeclaredError(
-                f"[Error]: Variable '{id_}' ya definida. [L{meta.line}:C{meta.column}]"
-            )
+            self._registrar_error(f"[Error]: Variable '{id_}' ya declarada. [L{meta.line}:C{meta.column}]")
+            return val
         self.tabla_simbolos[id_] = {"valor": val, "tipo": tipo, "init": init}
         return val
-
+    
+    @v_args(meta=True)
     def __editar_tabla_simbolo__(self, id_, val, meta):
         if id_ not in self.tabla_simbolos:
-            raise NameError(f"[Error]: Variable '{id_}' no definida.")
+            self._registrar_error(f"[Error]: Variable '{id_}' no definida. [L{meta.line}:C{meta.column}]")
+            return
+            
         tipo = self.tabla_simbolos[id_]["tipo"]
         compatible = any(isinstance(val, t) for t in self.valores_por_tipo[tipo][1:])
+        
         if not compatible:
-            raise TypeError(
-                f"[Error]: tipo <{self.__obtener_tipo__(val)}> incompatible con <{tipo}> de [{id_}]. "
-                f"[L{meta.line}:C{meta.column}]"
-            )
+            self._registrar_error(f"[Error]: tipo <{self.__obtener_tipo__(val)}> incompatible con <{tipo}> de [{id_}]. [L{meta.line}:C{meta.column}]")
+            return 
+            
         self.tabla_simbolos[id_]["init"] = True
-        if tipo == "int":
-            val = int(val)
-        if tipo == "float":
+        if tipo in ("int", "float"):
             val = float(val)
         self.tabla_simbolos[id_]["valor"] = val
 
@@ -242,11 +254,13 @@ class Interprete(Transformer):
     def _var(self, meta, t):
         nombre = str(t[0])
         if nombre not in self.tabla_simbolos:
-            raise NameError(f"[Error]: Variable '{nombre}' no definida.")
+            self._registrar_error(f"[Error]: Variable '{nombre}' no definida. [L{meta.line}:C{meta.column}]")
+            return 0 
+            
         if not self.tabla_simbolos[nombre]["init"]:
-            raise InitializationError(
-                f"[Error]: Variable '{nombre}' no inicializada. [L{meta.line}:C{meta.column}]"
-            )
+            self._registrar_error(f"[Error]: Variable '{nombre}' no inicializada. [L{meta.line}:C{meta.column}]")
+            return 0 
+            
         return self.tabla_simbolos[nombre]["valor"]
 
     def _asig(self, t):
@@ -268,9 +282,10 @@ class Interprete(Transformer):
     def _mult(self, t):  return t[0] * t[1]
     
     @v_args(meta=True)
-    def _div(self,meta, t):
+    def _div(self, meta, t):
         if t[1] == 0:
-            raise ZeroDivisionError(f"[Error]: división entre cero. [L{meta.line}:C{meta.column}]")
+            self._registrar_error(f"[Error]: división entre cero. [L{meta.line}:C{meta.column}]")
+            return 0
         return t[0] / t[1]
 
     def _poten(self, t): return t[0] ** t[1]
@@ -279,10 +294,8 @@ class Interprete(Transformer):
     def _rpl(self, meta, t):
         for i, label in enumerate(["cadena origen", "buscar", "reemplazar"]):
             if not isinstance(t[i], str):
-                raise TypeError(
-                    f"[Error]: replace — arg {i+1} ({label}) debe ser string. "
-                    f"[L{meta.line}:C{meta.column}]"
-                )
+                self._registrar_error(f"[Error]: replace — arg {i+1} ({label}) debe ser string. [L{meta.line}:C{meta.column}]")
+                return ""
         return t[0].replace(t[1], t[2])
 
     def _concat(self, t):   return str(t[0]) + str(t[1])
@@ -294,13 +307,16 @@ class Interprete(Transformer):
     @v_args(meta=True)
     def _sub_str(self, meta, t):
         if not isinstance(t[0], str):
-            raise TypeError(f"[Error]: sub() requiere string. [L{meta.line}:C{meta.column}]")
+            self._registrar_error(f"[Error]: sub() requiere string. [L{meta.line}:C{meta.column}]")
+            return ""
         return t[0][int(t[1]):int(t[2])]
-
 
     def _to_string(self, t): return str(t[0])
 
     def _print(self, t):
+        if len(self.errores_semanticos) > 0:
+            return
+        
         if t and isinstance(t[0], list):
             line = " ".join(str(x) for x in t[0])
         else:
@@ -321,12 +337,12 @@ class Interprete(Transformer):
                 val = it["valor"]
                 compatible = isinstance(val, defaults[1]) or (len(defaults) > 2 and isinstance(val, defaults[2]))
                 if not compatible:
-                    raise TypeError(
-                        f"[Error]: valor incompatible con tipo [{tipo}] en variable [{id_}]."
-                    )
-                if tipo in ("int", "float"):
-                    val = float(val)
-                self.__agregar_a_tabla_simbolos__(id_, val, tipo, True, meta)
+                    self._registrar_error(f"[Error]: valor incompatible con tipo [{tipo}] en variable [{id_}]. [L{meta.line}:C{meta.column}]")
+                    self.__agregar_a_tabla_simbolos__(id_, defaults[0], tipo, False, meta)
+                else:
+                    if tipo in ("int", "float"):
+                        val = float(val)
+                    self.__agregar_a_tabla_simbolos__(id_, val, tipo, True, meta)
             else:
                 self.__agregar_a_tabla_simbolos__(id_, defaults[0], tipo, False, meta)
 

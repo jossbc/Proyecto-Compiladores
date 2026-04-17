@@ -1,7 +1,6 @@
 from lark import Transformer, v_args, Lark
 from lark.exceptions import UnexpectedInput, UnexpectedToken, UnexpectedCharacters, VisitError
 import warnings
-from CustomExceptions import PreviouslyDeclaredError, InitializationError
 
 
 GRAMATICA = r"""
@@ -91,7 +90,6 @@ PRT: "cangri"
 """
 
 
-@v_args(meta=True)
 class Interprete(Transformer):
     def __init__(self, salida_callback=None, warn_callback=None):
         super().__init__(visit_tokens=True)
@@ -147,14 +145,16 @@ class Interprete(Transformer):
                 
             resultado["simbolos"] = dict(self.tabla_simbolos)
 
-            # self.tabla_simbolos = {}
-            # self.errores_semanticos = [] 
+            self.tabla_simbolos = {}
+            self.errores_semanticos = [] 
 
         except VisitError as e:
             err = e.orig_exc
             resultado["mensajes"].append(str(err))
+            resultado["ok"] = False
         except Exception as e:
             resultado["mensajes"].append(f"[Error inesperado]: {e}")
+            resultado["ok"] = False
 
         return resultado
 
@@ -246,8 +246,12 @@ class Interprete(Transformer):
             return 
             
         self.tabla_simbolos[id_]["init"] = True
-        if tipo in ("int", "float"):
+
+        if tipo in "int":
+            val = int(val)
+        if tipo in "float":
             val = float(val)
+
         self.tabla_simbolos[id_]["valor"] = val
 
     @v_args(meta=True)
@@ -317,8 +321,8 @@ class Interprete(Transformer):
         if len(self.errores_semanticos) > 0:
             return
         
-        if t and isinstance(t[0], list):
-            line = " ".join(str(x) for x in t[0])
+        if t and isinstance(t[1], list):
+            line = " ".join(str(x) for x in t[1])
         else:
             line = ""
         self._output_cb(line)

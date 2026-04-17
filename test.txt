@@ -10,8 +10,9 @@ cangri();
 cangri("a = ", a, ", b = " #+ "    " #+ to_string(b));
 
 cangri();
-cangri(  65 #* "i <3 Roger ");
+cangri(  65 #* "i <3 Yovanna ");
 cangri();
-cangri( replace("i <3 Roger ", "Roger", "Mafer" ));
+cangri( replace("i <3 Yovanna ", "Yovanna", "Mafer" ));
 cangri(20#*"-");
 cangri(trim("         h   "));
+$

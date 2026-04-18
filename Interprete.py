@@ -106,10 +106,6 @@ class Interprete(Transformer):
         
         self._output_cb = salida_callback or print
         self._warn_cb   = warn_callback   or (lambda m: warnings.warn(m))
-    
-    def _registrar_error(self, mensaje):
-        """Función helper para guardar errores"""
-        self.errores_semanticos.append(mensaje)
 
     def interpretar_archivo(self, path: str):
         with open(path, encoding="utf-8") as f:
@@ -157,6 +153,9 @@ class Interprete(Transformer):
             resultado["ok"] = False
 
         return resultado
+    
+    def _registrar_error(self, mensaje):
+        self.errores_semanticos.append(mensaje)
 
     def _extraer_tokens(self, texto: str):
         tokens = []

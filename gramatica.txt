@@ -1,6 +1,6 @@
 start: instrucciones
 
-instrucciones: instruccion+
+instrucciones: instruccion+ "$"
 
 ?instruccion: declaracion
     | impresion

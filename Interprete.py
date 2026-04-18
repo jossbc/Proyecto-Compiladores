@@ -6,7 +6,7 @@ import warnings
 GRAMATICA = r"""
 start: instrucciones
 
-instrucciones: instruccion+
+instrucciones: instruccion+ "$"
 
 ?instruccion: declaracion
     | impresion
@@ -201,7 +201,7 @@ class Interprete(Transformer):
         base = f"[Error Sintáctico] L{linea}:C{col}"
         if type(e).__name__ == "UnexpectedEOF":
             l, c = pos_anterior()
-            return f"[Error Sintáctico] L{l}:C{c} — Falta punto y coma ';'"
+            return f"[Error Sintáctico] L{l}:C{c} — Final de archivo inesperado. Falta signo de dolar '$' al final."
         if isinstance(e, UnexpectedToken):
             esperados = getattr(e, "accepts", None)
             if esperados is None:

@@ -387,8 +387,6 @@ class App(tk.Tk):
         if not codigo:
             messagebox.showinfo("Vacío", "Escribe o carga código antes de analizar.")
             return
-        if codigo.endswith("$"):
-            codigo = codigo[:-1].rstrip()
         self._output_lines = []
 
         def tarea():
